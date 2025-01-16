@@ -7,3 +7,4 @@ Navedeni problemi Sleeping barber problem i Dining philosophers
 
 
 CircuitDiagram.jpg
+![Alt text](CircuitDiagram.jpg?raw=true "Circuit Diagram")
