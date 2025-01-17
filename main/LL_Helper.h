@@ -28,7 +28,12 @@
 
 extern hd44780_t lcd;
 
+
+#define MAX_ACTIVE_TASKS 20
+
+
 void lcd_init(void);
 void led_init(void);
-
+bool add_active_task(TaskHandle_t task);
+void kill_child_tasks(void);
 #endif // LL_HELPER_H 

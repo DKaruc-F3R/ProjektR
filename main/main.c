@@ -10,37 +10,34 @@ volatile bool is_running = false;
 
 #define MENU_ITEMS 4
 
+
+volatile bool navigate_requested = false;
+volatile bool confirm_requested = false;
+
 const char *menu_options[] = {
     "1. Barbe",
     "rs",
     "2. Philo",
     "sophers"};
 
-TaskHandle_t active_task = NULL;
+TaskHandle_t active_task_M = NULL;
 
 extern void barber_run(void *arg);
 extern void philosophers_run(void *arg);
 
 bool interrupt_active = false;
 
+
+
 void IRAM_ATTR interrupt_handler(void *arg)
 {
-    printf("\nInterrupt triggered: Returning to main menu...\n");
-    hd44780_clear(&lcd);
-    hd44780_gotoxy(&lcd, 0, 0);
-    hd44780_puts(&lcd, "INTERRUPT");
-    hd44780_gotoxy(&lcd, 0, 1);
-    hd44780_puts(&lcd, "T");
-    is_running = false;
-
-    if (active_task != NULL)
-    {
-        vTaskDelete(active_task);
-        active_task = NULL;
+    
+     uint32_t gpio_num = (uint32_t) arg;
+    if (gpio_num == BUTTON_NAVIGATE) {
+        navigate_requested = true;
+    } else if (gpio_num == BUTTON_CONFIRM) {
+        confirm_requested = true;
     }
-
-    menu_index = 0;
-    interrupt_active = true;
 }
 
 void display_menu(void)
@@ -60,9 +57,9 @@ void nav_menu(void)
 
     if (!is_running)
     {
-        menu_index = (menu_index + 2) % MENU_ITEMS;
         display_menu();
         printf("Menu: %s%s\n", menu_options[menu_index], menu_options[menu_index + 1]);
+        menu_index = (menu_index + 2) % MENU_ITEMS;
     }
 }
 
@@ -72,18 +69,19 @@ void conf_menu(void)
     if (!is_running)
     {
         is_running = true;
-        if (menu_index == 0)
+        if (menu_index == 2)
         {
             printf("\nLaunching Sleeping Barber problem.\n");
-            xTaskCreate(barber_run, "BarberShop", 4096, NULL, 5, &active_task);
+            xTaskCreate(barber_run, "BarberShop", 4096, NULL, 5, &active_task_M);
+            add_active_task(active_task_M);
         }
-        else if (menu_index == 2)
+        else if (menu_index == 0)
         {
             printf("\nLaunching Dining Philosophers problem.\n");
-            xTaskCreate(philosophers_run, "Philosophers", 4096, NULL, 5, &active_task);
+            xTaskCreate(philosophers_run, "Philosophers", 4096, NULL, 5, &active_task_M);
+            add_active_task(active_task_M);
         }
 
-        gpio_isr_handler_add(BUTTON_CONFIRM, interrupt_handler, NULL);
     }
 }
 
@@ -100,9 +98,35 @@ void button_init(void)
 
     gpio_install_isr_service(0);
 
-    gpio_isr_handler_add(BUTTON_NAVIGATE, (void *)nav_menu, NULL);
-    gpio_isr_handler_add(BUTTON_CONFIRM, (void *)conf_menu, NULL);
+    gpio_isr_handler_add(BUTTON_NAVIGATE, interrupt_handler, (void *)BUTTON_NAVIGATE);
+    gpio_isr_handler_add(BUTTON_CONFIRM, interrupt_handler, (void *)BUTTON_CONFIRM);
 }
+
+void handle_interrupt(void)
+{
+
+    vTaskDelay(pdMS_TO_TICKS(300)); // Debounce
+   printf("\nInterrupt triggered: Returning to main menu...\n");
+    kill_child_tasks();
+    hd44780_clear(&lcd);
+    hd44780_gotoxy(&lcd, 0, 0);
+    hd44780_puts(&lcd, "INTERRUPT");
+    hd44780_gotoxy(&lcd, 0, 1);
+    hd44780_puts(&lcd, "T");
+
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    gpio_set_level(LED_GREEN, 0);
+    gpio_set_level(LED_RED_B1, 0);
+    gpio_set_level(LED_BLUE_B1, 0);
+    gpio_set_level(LED_RED_B2, 0);
+    gpio_set_level(LED_BLUE_B2, 0);
+
+
+    menu_index = 0;
+    nav_menu();
+}
+
 
 void app_main(void)
 {
@@ -118,18 +142,32 @@ void app_main(void)
 
     nav_menu();
 
-    while (1)
-    {
-        if (!is_running)
-        {
-            vTaskDelay(pdMS_TO_TICKS(100));
+    while (1) {
+        /// Scroling through the menu
+        if (navigate_requested && !is_running) {
+            navigate_requested = false;
+            nav_menu();  
         }
-        if(interrupt_active){
-            interrupt_active = false;
-            gpio_isr_handler_add(BUTTON_CONFIRM, (void *)conf_menu, NULL);
-            vTaskDelay(pdMS_TO_TICKS(300));
+
+        /// Confirming the selection
+        if (confirm_requested) {
+            confirm_requested = false;
+            if (!is_running) {
+                //If the program is not running, confirm the selection
+                conf_menu();
+            } else {
+                //If the program is running, interrupt it and return to main menu
+                //Interrupt routine
+                if (active_task_M != NULL) {
+                    handle_interrupt();
+                    active_task_M = NULL;
+                }
+                is_running = false;
+                // Return to main menu
+                menu_index = 0;
+                nav_menu();
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(300));
-
     }
 }

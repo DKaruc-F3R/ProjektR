@@ -1,5 +1,8 @@
 #include "LL_Helper.h"
 
+TaskHandle_t active_tasks_x[MAX_ACTIVE_TASKS] = {NULL};
+
+
 hd44780_t lcd = {
     .pins = {
         .rs = LCD_RS,
@@ -55,4 +58,30 @@ void led_init(void){
     gpio_set_level(LED_BLUE_B1, 0);
     gpio_set_level(LED_RED_B2, 0);
     gpio_set_level(LED_BLUE_B2, 0);
+}
+
+
+bool add_active_task(TaskHandle_t task)
+{
+    for (int i = 0; i < MAX_ACTIVE_TASKS; i++)
+    {
+        if (active_tasks_x[i] == NULL)
+        {
+            active_tasks_x[i] = task;
+            return true;
+        }
+    }
+    return false;
+}
+
+void kill_child_tasks(void)
+{
+    for (int i = 0; i < MAX_ACTIVE_TASKS; i++)
+    {
+        if (active_tasks_x[i] != NULL)
+        {
+            vTaskDelete(active_tasks_x[i]);
+            active_tasks_x[i] = NULL;
+        }
+    }
 }
